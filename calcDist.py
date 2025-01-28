@@ -1,169 +1,77 @@
 import pandas as pd
 import numpy as np
-from collections import defaultdict
-import glob
-import sys
-import os
 
-# Define required ratio columns
-RATIO_COLUMNS = [
-    "Ratio: (cla) / (ctrl)",
-    "Ratio: (cla_and_lps) / (ctrl)",
-    "Ratio: (cla_and_no2_and_lps) / (ctrl)",
-    "Ratio: (lps) / (ctrl)",
-    "Ratio: (no2-cla_and_lps) / (ctrl)",
-    "Ratio: (cla) / (lps)",
-    "Ratio: (cla_and_lps) / (lps)",
-    "Ratio: (cla_and_no2_and_lps) / (lps)",
-    "Ratio: (no2-cla_and_lps) / (lps)"
-]
+# Function to calculate distances
+def calculate_distance_to_extremes(data, log2_fc_cols, p_value_cols, distance_cap=None):
+    results = []
 
-def main():
-    """
-    Reads CSV files matching 'Compounds_1_27_25_Prepared.csv',
-    checks for required columns, converts data to numeric as needed,
-    calculates Euclidean distance to a reference point for each compound,
-    and outputs the top 50 by smallest distance.
-    """
-    # Track distances across files
-    total_distances = defaultdict(float)
-    
-    # Find matching CSV files
-    csv_files = glob.glob('Compounds_1_27_25_Prepared.csv')
-    
-    if not csv_files:
-        print("No CSV files found matching 'Compounds_1_27_25_Prepared.csv'. Exiting.", file=sys.stderr)
-        sys.exit(1)
+    for idx, compound in data.iterrows():
+        total_distance = 0
+        comparison_count = 0
 
-    print("Found the following files to process:")
-    for f in csv_files:
-        print(f"  - {f}")
+        for log2_fc_col, p_value_col in zip(log2_fc_cols, p_value_cols):
+            # Get the current compound's values
+            x = compound[log2_fc_col]
+            y = compound[p_value_col]
 
-    # Process each CSV file
-    for csv_file in csv_files:
-        if not os.path.isfile(csv_file):
-            print(f"File {csv_file} does not exist. Skipping...", file=sys.stderr)
-            continue
-
-        print(f"\nProcessing '{csv_file}'...")
-
-        # Load data with proper encoding
-        try:
-            df = pd.read_csv(csv_file, encoding='ISO-8859-1')
-        except Exception as e:
-            print(f"  ERROR: Could not read {csv_file}. Reason: {e}", file=sys.stderr)
-            continue
-
-        # Validate required columns
-        required_cols = ['Compounds ID', 'Name', 'Calc. MW'] + RATIO_COLUMNS
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"  ERROR: Missing columns in {csv_file}: {missing_cols}", file=sys.stderr)
-            continue
-
-        # Convert ratio columns to numeric (coerce => non-convertible becomes NaN)
-        for ratio_col in RATIO_COLUMNS:
-            if ratio_col in df.columns:
-                df[ratio_col] = pd.to_numeric(df[ratio_col], errors='coerce')
-
-        # For each ratio column, find the corresponding p-value column
-        for ratio_col in RATIO_COLUMNS:
-            pvalue_col = ratio_col.replace("Ratio: ", "P-value: ", 1)
-
-            # If p-value column is missing, skip
-            if pvalue_col not in df.columns:
-                print(f"  Skipping ratio column '{ratio_col}' - no matching p-value column '{pvalue_col}'.")
+            # Ensure valid numeric values
+            if pd.isna(x) or pd.isna(y) or not isinstance(y, (int, float)) or not isinstance(x, (int, float)):
                 continue
 
-            # Convert p-values to numeric
-            df[pvalue_col] = pd.to_numeric(df[pvalue_col], errors='coerce')
-
-            # Drop rows where either ratio or p-value is NaN
-            df_temp = df.dropna(subset=[ratio_col, pvalue_col]).copy()
-            if df_temp.empty:
-                print(f"  WARNING: All rows are invalid or NaN for '{ratio_col}' or '{pvalue_col}'. Skipping.")
-                continue
-            
-            # Show how many rows remain valid
-            print(f"  Processing '{ratio_col}' vs '{pvalue_col}': {len(df_temp)} valid rows remain.")
-
-            # Calculate -log10(p-value)
-            try:
-                df_temp['-log10_pvalue'] = -np.log10(df_temp[pvalue_col])
-            except (ValueError, TypeError) as e:
-                print(f"  ERROR: Could not calculate -log10 for column {pvalue_col}. Reason: {e}", file=sys.stderr)
+            # Calculate -log10(P-value) and ensure it's valid
+            y = -np.log10(y) if y > 0 else np.nan
+            if pd.isna(y) or np.isinf(y):
                 continue
 
-            # Calculate reference points for the ratio
-            leftmost = df_temp[ratio_col].min()
-            rightmost = df_temp[ratio_col].max()
-            topmost = df_temp['-log10_pvalue'].max()
+            # Identify the region of interest
+            comparison_data = data[[log2_fc_col, p_value_col]].copy()
+            comparison_data["-log10(P-value)"] = -np.log10(comparison_data[p_value_col].replace(0, np.nan))
 
-            # For each valid compound, compute the distance
-            for _, row in df_temp.iterrows():
-                compound_id = row['Compounds ID']
-                log2fc = row[ratio_col]
-                y_val = row['-log10_pvalue']
+            if x < 0:
+                # Left region (x < 0)
+                leftmost_x = comparison_data[log2_fc_col][comparison_data[log2_fc_col] < 0].min()
+                topmost_y = comparison_data["-log10(P-value)"][comparison_data[log2_fc_col] < 0].max()
+                if not pd.isna(leftmost_x) and not pd.isna(topmost_y):
+                    distance = np.sqrt((x - leftmost_x) ** 2 + (y - topmost_y) ** 2)
+                    total_distance += min(distance, distance_cap) if distance_cap else distance
+                    comparison_count += 1
+            elif x >= 0:
+                # Right region (x >= 0)
+                rightmost_x = comparison_data[log2_fc_col][comparison_data[log2_fc_col] >= 0].max()
+                topmost_y = comparison_data["-log10(P-value)"][comparison_data[log2_fc_col] >= 0].max()
+                if not pd.isna(rightmost_x) and not pd.isna(topmost_y):
+                    distance = np.sqrt((x - rightmost_x) ** 2 + (y - topmost_y) ** 2)
+                    total_distance += min(distance, distance_cap) if distance_cap else distance
+                    comparison_count += 1
 
-                # Decide reference point (leftmost or rightmost)
-                if log2fc < 0:
-                    ref_x, ref_y = leftmost, topmost
-                else:
-                    ref_x, ref_y = rightmost, topmost
+        # Calculate average distance
+        avg_distance = total_distance / comparison_count if comparison_count > 0 else np.nan
 
-                # Euclidean distance
-                distance = np.sqrt((log2fc - ref_x)**2 + (y_val - ref_y)**2)
-                total_distances[compound_id] += distance
+        # Use only "Calc. MW" as the identifier
+        identifier = compound["Calc. MW"]
+        results.append({"Calc. MW": identifier, "Average Distance": avg_distance})
 
-    # If no distances were computed, exit early
-    if not total_distances:
-        print("\nNo valid distances were computed. Please check your input data.", file=sys.stderr)
-        sys.exit(1)
+    return pd.DataFrame(results)
 
-    # Create a dataframe of total distances
-    distance_df = pd.DataFrame(
-        total_distances.items(),
-        columns=['Compounds ID', 'Total Distance']
-    )
-    print(f"\nComputed total distances for {len(distance_df)} compounds.")
+# Load your data
+input_file = "Compounds_1_27_25_Prepared.csv"
+output_file = "significant_compounds_by_distance.csv"  # Replace with desired output file path
+data = pd.read_csv(input_file)
 
-    # Collect compound metadata from all CSV files
-    compound_info_list = []
-    for csv_file in csv_files:
-        try:
-            df_info = pd.read_csv(
-                csv_file,
-                usecols=['Compounds ID', 'Name', 'Calc. MW'],
-                encoding='ISO-8859-1'
-            )
-            compound_info_list.append(df_info)
-        except ValueError:
-            # If the columns aren't present, skip
-            print(f"  WARNING: Could not read compound metadata from {csv_file}. Missing columns.")
-        except Exception as e:
-            print(f"  WARNING: Error reading {csv_file} for compound metadata: {e}")
+# Ensure all relevant columns are numeric
+data = data.applymap(lambda x: pd.to_numeric(x, errors='coerce') if isinstance(x, str) else x)
 
-    # Merge and deduplicate compound info
-    if compound_info_list:
-        compound_info = pd.concat(compound_info_list).drop_duplicates('Compounds ID')
-        # If 'Name' is missing, fill with 'Calc. MW' as fallback
-        compound_info['Name'] = compound_info['Name'].fillna(compound_info['Calc. MW'])
-    else:
-        print("WARNING: No compound info collected. Output will contain only 'Compounds ID' and 'Total Distance'.")
-        compound_info = pd.DataFrame(columns=['Compounds ID', 'Name', 'Calc. MW'])
+# Define relevant columns for log2 fold changes and p-values
+log2_fc_cols = [col for col in data.columns if "Log2 Fold Change" in col]
+p_value_cols = [col for col in data.columns if "P-value" in col and "Adj." not in col]
 
-    # Merge distances with compound info
-    final_df = pd.merge(distance_df, compound_info, on='Compounds ID', how='left')
+# Perform the refined distance calculation
+results = calculate_distance_to_extremes(data, log2_fc_cols, p_value_cols)
 
-    # Sort by ascending distance and pick top 50
-    final_df = final_df.sort_values('Total Distance', ascending=True).head(50)
+# Drop NaN values and sort by ascending average distance
+results.dropna(subset=["Average Distance"], inplace=True)
+results.sort_values(by="Average Distance", inplace=True)
 
-    # Output results
-    output_file = 'significant_compounds_by_distance.csv'
-    final_df.to_csv(output_file, index=False)
-    print(f"\nResults saved to '{output_file}'.\n")
-    print("Top 50 compounds (Name | Total Distance):")
-    print(final_df[['Name', 'Total Distance']].to_string(index=False))
-
-if __name__ == '__main__':
-    main()
+# Save results to CSV
+results.to_csv(output_file, index=False)
+print(f"Results saved to {output_file}")
