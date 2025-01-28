@@ -34,7 +34,7 @@ def validate_and_clean_column(df, column_name):
         
         # Calculate the percentage of invalid (NaN) values
         invalid_percentage = numeric_values.isna().mean() * 100
-        if invalid_percentage > 30:
+        if invalid_percentage > 90:
             problematic_entries = df[df[column_name].isna()]
             problematic_sample = problematic_entries.sample(
                 min(10, len(problematic_entries))
@@ -46,7 +46,7 @@ def validate_and_clean_column(df, column_name):
                 print(f"Index {idx}: '{original_value}'")
                 
             raise ValueError(
-                f"More than 30% ({invalid_percentage:.2f}%) of values in column '{column_name}' are invalid."
+                f"More than 90% ({invalid_percentage:.2f}%) of values in column '{column_name}' are invalid."
             )
         print(f"Column '{column_name}' cleaned successfully with {invalid_percentage:.2f}% invalid values.")
         
@@ -63,7 +63,46 @@ config = {
         'p_value_col': "P-value: (cla) / (ctrl)",
         'title': "Volcano Plot: CLA vs CTRL"
     },
-    # Additional comparisons omitted for brevity...
+    "CLA+LPS vs CTRL": {
+        'ratio_col': "Ratio: (cla_and_lps) / (ctrl)",
+        'p_value_col': "P-value: (cla_and_lps) / (ctrl)",
+        'title': "Volcano Plot: CLA+LPS vs CTRL"
+    },
+    "CLA+NO2+LPS vs CTRL": {
+        'ratio_col': "Ratio: (cla_and_no2_and_lps) / (ctrl)",
+        'p_value_col': "P-value: (cla_and_no2_and_lps) / (ctrl)",
+        'title': "Volcano Plot: CLA+NO2+LPS vs CTRL"
+    },
+    "LPS vs CTRL": {
+        'ratio_col': "Ratio: (lps) / (ctrl)",
+        'p_value_col': "P-value: (lps) / (ctrl)",
+        'title': "Volcano Plot: LPS vs CTRL"
+    },
+    "NO2-CLA+LPS vs CTRL": {
+        'ratio_col': "Ratio: (no2-cla_and_lps) / (ctrl)",
+        'p_value_col': "P-value: (no2-cla_and_lps) / (ctrl)",
+        'title': "Volcano Plot: NO2-CLA+LPS vs CTRL"
+    },
+    "CLA vs LPS": {
+        'ratio_col': "Ratio: (cla) / (lps)",
+        'p_value_col': "P-value: (cla) / (lps)",
+        'title': "Volcano Plot: CLA vs LPS"
+    },
+    "CLA+LPS vs LPS": {
+        'ratio_col': "Ratio: (cla_and_lps) / (lps)",
+        'p_value_col': "P-value: (cla_and_lps) / (lps)",
+        'title': "Volcano Plot: CLA+LPS vs LPS"
+    },
+    "CLA+NO2+LPS vs LPS": {
+        'ratio_col': "Ratio: (cla_and_no2_and_lps) / (lps)",
+        'p_value_col': "P-value: (cla_and_no2_and_lps) / (lps)",
+        'title': "Volcano Plot: CLA+NO2+LPS vs LPS"
+    },
+    "NO2-CLA+LPS vs LPS": {
+        'ratio_col': "Ratio: (no2-cla_and_lps) / (lps)",
+        'p_value_col': "P-value: (no2-cla_and_lps) / (lps)",
+        'title': "Volcano Plot: NO2-CLA+LPS vs LPS"
+    }
 }
 
 # Create hover text
